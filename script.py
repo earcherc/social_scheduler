@@ -60,9 +60,8 @@ def download_images(image_urls):
 
 def upload_media(image_paths, api):
     media_ids = []
-    if not image_paths:
-        print("No images to upload")
-        return None, "Download failed, no images to upload"
+    if not image_paths:  # If no images were downloaded successfully
+        return media_ids, None  # Return empty list of media_ids without error
     try:
         for image_path in image_paths:
             media = api.media_upload(image_path)
@@ -75,7 +74,12 @@ def upload_media(image_paths, api):
 
 def post_to_x(client, caption, media_ids, model_name):
     try:
-        response = client.create_tweet(text=caption, media_ids=media_ids)
+        # Handle both situations: with and without media_ids
+        response = (
+            client.create_tweet(text=caption, media_ids=media_ids)
+            if media_ids
+            else client.create_tweet(text=caption)
+        )
         print(f"Successfully posted: Model Name='{model_name}', Caption='{caption}'")
         return response, None
     except Exception as e:
@@ -122,8 +126,10 @@ def process_posts(sheet):
         ):
             model_name = post["model"]
             api, client = setup_api(model_name)
-            image_urls = post["source"].split(",")
-            image_paths, download_error = download_images(image_urls)
+            image_urls = post["source"].split(",") if post["source"] else []
+            image_paths, download_error = (
+                download_images(image_urls) if image_urls else ([], None)
+            )
             if download_error:
                 sheet.update_cell(row_index, error_col_idx, download_error)
                 continue
