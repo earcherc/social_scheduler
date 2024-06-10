@@ -44,9 +44,9 @@ def download_images(image_urls):
             if "drive.google.com/file/d/" in image_url:
                 file_id = image_url.split("/")[-2]
                 download_url = f"https://drive.google.com/uc?id={file_id}"
-                response = requests.get(download_url)
+                response = requests.get(download_url, timeout=30)
             else:
-                response = requests.get(image_url)
+                response = requests.get(image_url, timeout=30)
             response.raise_for_status()
             image_path = f"/tmp/temp_image_{len(image_paths)}.jpg"
             with open(image_path, "wb") as f:
@@ -54,48 +54,68 @@ def download_images(image_urls):
             image_paths.append(image_path)
         except requests.RequestException as e:
             print(f"Failed to download image: {e}")
-            return None, str(e)  # Return error message
+            return None, str(e)
     return image_paths, None
 
 
 def upload_media(image_paths, api):
     media_ids = []
     if not image_paths:
+        print("No images to upload")
         return None, "Download failed, no images to upload"
     try:
         for image_path in image_paths:
             media = api.media_upload(image_path)
             media_ids.append(media.media_id_string)
     except Exception as e:
+        print(f"Error uploading media: {e}")
         return None, str(e)
     return media_ids, None
 
 
-def post_to_x(client, caption, media_ids):
+def post_to_x(client, caption, media_ids, model_name):
     try:
         response = client.create_tweet(text=caption, media_ids=media_ids)
+        print(f"Successfully posted: Model Name='{model_name}', Caption='{caption}'")
         return response, None
     except Exception as e:
+        print(
+            f"Failed to post: Model Name='{model_name}', Caption='{caption}', Error={str(e)}"
+        )
         return None, str(e)
 
 
 def get_scheduled_posts(sheet):
     records = sheet.get_all_records()
-    return [
+    scheduled_posts = [
         record
         for record in records
         if record["status"] == "Scheduled" and record["platform"] == "X"
     ]
+    if not scheduled_posts:
+        print("No posts scheduled to be posted.")
+    else:
+        print(f"Found {len(scheduled_posts)} scheduled posts.")
+    return scheduled_posts
 
 
 def process_posts(sheet):
     posts = get_scheduled_posts(sheet)
-    header = sheet.row_values(1)
+    all_values = sheet.get_all_values()
+    header = all_values[0]
     status_col_idx = header.index("status") + 1
     last_updated_col_idx = header.index("last_updated") + 1
     error_col_idx = header.index("error") + 1
 
     for post in posts:
+        row_index = next(
+            i
+            for i, row in enumerate(all_values, start=1)
+            if str(row[0]) == str(post["id"])
+        )
+        print(
+            f"About to process post: Model Name='{post['model']}', Caption='{post['description']}'"
+        )
         if (
             datetime.datetime.strptime(post["schedule"], "%Y-%m-%d %H:%M:%S")
             <= datetime.datetime.now()
@@ -105,27 +125,27 @@ def process_posts(sheet):
             image_urls = post["source"].split(",")
             image_paths, download_error = download_images(image_urls)
             if download_error:
-                sheet.update_cell(post["row"], error_col_idx, download_error)
-                continue  # Skip further processing if download fails
+                sheet.update_cell(row_index, error_col_idx, download_error)
+                continue
             media_ids, upload_error = upload_media(image_paths, api)
             if upload_error:
-                sheet.update_cell(post["row"], error_col_idx, upload_error)
+                sheet.update_cell(row_index, error_col_idx, upload_error)
                 continue
-            response, post_error = post_to_x(client, post["description"], media_ids)
-            if post_error:
-                sheet.update_cell(post["row"], error_col_idx, post_error)
-                continue
-            sheet.update_cell(post["row"], status_col_idx, "Posted")
-            sheet.update_cell(
-                post["row"], last_updated_col_idx, str(datetime.datetime.now())
+            response, post_error = post_to_x(
+                client, post["description"], media_ids, model_name
             )
-    return "Posts processed successfully"
+            if post_error:
+                sheet.update_cell(row_index, error_col_idx, post_error)
+                continue
+            sheet.update_cell(row_index, status_col_idx, "Posted")
+            sheet.update_cell(
+                row_index, last_updated_col_idx, str(datetime.datetime.now())
+            )
 
 
 def main():
     sheet = initialize_sheet()
-    result = process_posts(sheet)
-    print(result)
+    process_posts(sheet)
 
 
 if __name__ == "__main__":
