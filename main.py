@@ -4,14 +4,36 @@ from google.oauth2.service_account import Credentials
 import datetime
 import requests
 import os
+import json
+from google.cloud import secretmanager
+import google.auth
 
 
 def initialize_sheet():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive",
-    ]
-    creds = Credentials.from_service_account_file("google-service.json", scopes=scope)
+    # Create the Secret Manager client.
+    _, project = google.auth.default()
+    client = secretmanager.SecretManagerServiceClient()
+    secret_name = "service-account-appspot-credentials"  # The name of your secret
+    secret_version = "latest"  # Can be a version number or 'latest'
+    name = f"projects/{project}/secrets/{secret_name}/versions/{secret_version}"
+
+    # Access the secret version.
+    response = client.access_secret_version(request={"name": name})
+    secret_string = response.payload.data.decode("UTF-8")
+
+    # Parse the JSON string back into a dictionary.
+    creds_info = json.loads(secret_string)
+
+    # Use the parsed JSON dictionary to create credentials.
+    creds = Credentials.from_service_account_info(
+        creds_info,
+        scopes=[
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/drive",
+        ],
+    )
+
+    # Authorize with gspread using these credentials.
     client = gspread.authorize(creds)
     return client.open("Social Scheduler").sheet1
 
@@ -149,9 +171,10 @@ def process_posts(sheet):
             )
 
 
-def main():
+def main(request):
     sheet = initialize_sheet()
     process_posts(sheet)
+    return "Process completed"
 
 
 if __name__ == "__main__":
