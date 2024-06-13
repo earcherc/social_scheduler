@@ -16,7 +16,6 @@
 node_modules
 #!include:.gitignore
 
-google-service.json
 google-service-appspot.json
 .envrc
 venv/

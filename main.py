@@ -13,7 +13,7 @@ def initialize_sheet():
     # Create the Secret Manager client.
     _, project = google.auth.default()
     client = secretmanager.SecretManagerServiceClient()
-    secret_name = "service-account-appspot-credentials"  # The name of your secret
+    secret_name = "social-schedule-secret"  # The name of your secret
     secret_version = "latest"  # Can be a version number or 'latest'
     name = f"projects/{project}/secrets/{secret_name}/versions/{secret_version}"
 
