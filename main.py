@@ -7,9 +7,17 @@ import os
 import json
 from google.cloud import secretmanager
 import google.auth
+import mimetypes
+
+
+def log_message(message):
+    # This function will help to standardize the logging format
+    print(f"{datetime.datetime.now()}: {message}")
 
 
 def initialize_sheet():
+    log_message("Initializing Google Sheet access.")
+
     # Create the Secret Manager client.
     _, project = google.auth.default()
     client = secretmanager.SecretManagerServiceClient()
@@ -35,10 +43,12 @@ def initialize_sheet():
 
     # Authorize with gspread using these credentials.
     client = gspread.authorize(creds)
+    log_message("Google Sheet access initialized successfully.")
     return client.open("Social Scheduler").sheet1
 
 
 def setup_api(model_name):
+    log_message(f"Setting up API for model: {model_name}")
     bearer_token = os.getenv(f"{model_name.upper()}_BEARER_TOKEN")
     access_token = os.getenv(f"{model_name.upper()}_ACCESS_TOKEN")
     access_token_secret = os.getenv(f"{model_name.upper()}_ACCESS_TOKEN_SECRET")
@@ -56,45 +66,60 @@ def setup_api(model_name):
         consumer_secret=api_key_secret,
         wait_on_rate_limit=True,
     )
+    log_message(f"API setup completed for model: {model_name}")
     return api, client
 
 
 def download_images(image_urls):
+    log_message("Starting to download images.")
     image_paths = []
     for image_url in image_urls:
         try:
             if "drive.google.com/file/d/" in image_url:
+                log_message(f"Downloading image from Google Drive: {image_url}")
                 file_id = image_url.split("/")[-2]
                 download_url = f"https://drive.google.com/uc?id={file_id}"
                 response = requests.get(download_url, timeout=30)
             else:
+                log_message(f"Downloading image from URL: {image_url}")
                 response = requests.get(image_url, timeout=30)
             response.raise_for_status()
             image_path = f"/tmp/temp_image_{len(image_paths)}.jpg"
             with open(image_path, "wb") as f:
                 f.write(response.content)
             image_paths.append(image_path)
+            log_message(f"Image downloaded successfully: {image_path}")
         except requests.RequestException as e:
-            print(f"Failed to download image: {e}")
+            log_message(f"Failed to download image: {e}")
             return None, str(e)
+    log_message("Image download process completed.")
     return image_paths, None
 
 
 def upload_media(image_paths, api):
+    log_message("Starting to upload media.")
     media_ids = []
     if not image_paths:  # If no images were downloaded successfully
+        log_message("No images to upload.")
         return media_ids, None  # Return empty list of media_ids without error
     try:
         for image_path in image_paths:
+            mime_type, _ = mimetypes.guess_type(image_path)
+            log_message(f"Uploading media: {image_path}, MIME type: {mime_type}")
+
+            # Upload the media using Tweepy
             media = api.media_upload(image_path)
             media_ids.append(media.media_id_string)
+            log_message(f"Media uploaded successfully: {image_path}")
     except Exception as e:
-        print(f"Error uploading media: {e}")
+        log_message(f"Error uploading media: {e}")
         return None, str(e)
+    log_message("Media upload process completed.")
     return media_ids, None
 
 
 def post_to_x(client, caption, media_ids, model_name):
+    log_message(f"Posting to Twitter for model: {model_name}")
     try:
         # Handle both situations: with and without media_ids
         response = (
@@ -102,16 +127,19 @@ def post_to_x(client, caption, media_ids, model_name):
             if media_ids
             else client.create_tweet(text=caption)
         )
-        print(f"Successfully posted: Model Name='{model_name}', Caption='{caption}'")
+        log_message(
+            f"Successfully posted: Model Name='{model_name}', Caption='{caption}'"
+        )
         return response, None
     except Exception as e:
-        print(
+        log_message(
             f"Failed to post: Model Name='{model_name}', Caption='{caption}', Error={str(e)}"
         )
         return None, str(e)
 
 
 def get_scheduled_posts(sheet):
+    log_message("Retrieving scheduled posts from Google Sheet.")
     records = sheet.get_all_records()
     scheduled_posts = [
         record
@@ -119,13 +147,14 @@ def get_scheduled_posts(sheet):
         if record["status"] == "Scheduled" and record["platform"] == "X"
     ]
     if not scheduled_posts:
-        print("No posts scheduled to be posted.")
+        log_message("No posts scheduled to be posted.")
     else:
-        print(f"Found {len(scheduled_posts)} scheduled posts.")
+        log_message(f"Found {len(scheduled_posts)} scheduled posts.")
     return scheduled_posts
 
 
 def process_posts(sheet):
+    log_message("Starting to process posts.")
     posts = get_scheduled_posts(sheet)
     all_values = sheet.get_all_values()
     header = all_values[0]
@@ -139,7 +168,7 @@ def process_posts(sheet):
             for i, row in enumerate(all_values, start=1)
             if str(row[0]) == str(post["id"])
         )
-        print(
+        log_message(
             f"About to process post: Model Name='{post['model']}', Caption='{post['description']}'"
         )
         if (
@@ -153,27 +182,33 @@ def process_posts(sheet):
                 download_images(image_urls) if image_urls else ([], None)
             )
             if download_error:
+                log_message(f"Error downloading images: {download_error}")
                 sheet.update_cell(row_index, error_col_idx, download_error)
                 continue
             media_ids, upload_error = upload_media(image_paths, api)
             if upload_error:
+                log_message(f"Error uploading media: {upload_error}")
                 sheet.update_cell(row_index, error_col_idx, upload_error)
                 continue
             response, post_error = post_to_x(
                 client, post["description"], media_ids, model_name
             )
             if post_error:
+                log_message(f"Error posting to X: {post_error}")
                 sheet.update_cell(row_index, error_col_idx, post_error)
                 continue
             sheet.update_cell(row_index, status_col_idx, "Posted")
             sheet.update_cell(
                 row_index, last_updated_col_idx, str(datetime.datetime.now())
             )
+            log_message(f"Post processed successfully: {post['id']}")
 
 
 def main(request):
+    log_message("Starting main process.")
     sheet = initialize_sheet()
     process_posts(sheet)
+    log_message("Main process completed.")
     return "Process completed"
 
 
