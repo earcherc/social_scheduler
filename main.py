@@ -49,29 +49,34 @@ def setup_google_drive(creds):
     return drive_service
 
 
-def download_image(image_url, drive_service):
-    if "drive.google.com" in image_url:
-        log_message(f"Downloading image from Google Drive: {image_url}")
-        file_id = image_url.split("/")[-2]
-        request = drive_service.files().get_media(fileId=file_id)
-        image_path = f"/tmp/temp_image_{file_id}.jpg"
-        with open(image_path, "wb") as fh:
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-                log_message(f"Download {int(status.progress() * 100)}%.")
-        log_message(f"Image downloaded successfully from Google Drive: {image_path}")
-        return image_path
-    else:
-        log_message(f"Downloading image from URL: {image_url}")
-        response = requests.get(image_url, timeout=30)
-        response.raise_for_status()
-        image_path = "/tmp/temp_image.jpg"
-        with open(image_path, "wb") as f:
-            f.write(response.content)
-        log_message(f"Image downloaded successfully: {image_path}")
-        return image_path
+def download_image(image_urls, drive_service):
+    images_paths = []
+    for image_url in image_urls.split(","):
+        if "drive.google.com" in image_url:
+            log_message(f"Downloading image from Google Drive: {image_url}")
+            file_id = image_url.split("/")[-2]
+            request = drive_service.files().get_media(fileId=file_id)
+            image_path = f"/tmp/temp_image_{file_id}.jpg"
+            with open(image_path, "wb") as fh:
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    status, done = downloader.next_chunk()
+                    log_message(f"Download {int(status.progress() * 100)}%.")
+            log_message(
+                f"Image downloaded successfully from Google Drive: {image_path}"
+            )
+            images_paths.append(image_path)
+        else:
+            log_message(f"Downloading image from URL: {image_url}")
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            image_path = f"/tmp/temp_image.jpg"
+            with open(image_path, "wb") as f:
+                f.write(response.content)
+            log_message(f"Image downloaded successfully: {image_path}")
+            images_paths.append(image_path)
+    return images_paths
 
 
 def setup_api(model_name):
@@ -95,19 +100,28 @@ def setup_api(model_name):
     return api, client
 
 
-def upload_media(image_path, api):
-    log_message(f"Starting to upload media: {image_path}")
-    # Upload the image using the Tweepy API object and get the media ID
-    media = api.media_upload(filename=image_path)
-    media_id = media.media_id_string
-    log_message(f"Media uploaded successfully: {media_id}")
-    return media_id
+def upload_media(image_paths, api):
+    media_ids = []
+    log_message(f"Starting to upload media.")
+    for image_path in image_paths:
+        try:
+            media = api.media_upload(filename=image_path)
+            media_id = media.media_id_string
+            media_ids.append(media_id)
+            log_message(f"Media uploaded successfully: {media_id}")
+        except Exception as e:
+            log_message(f"Error uploading media: {str(e)}")
+            return None, str(e)
+    return media_ids
 
 
-def post_to_twitter(client, caption, media_id, model_name, sheet, post_row):
+def post_to_twitter(client, caption, media_ids, model_name, sheet, post_row):
     log_message(f"Posting to Twitter for model: {model_name}")
     try:
-        response = client.create_tweet(text=caption, media_ids=[media_id])
+        if media_ids:
+            response = client.create_tweet(text=caption, media_ids=media_ids)
+        else:
+            response = client.create_tweet(text=caption)
         log_message(
             f"Successfully posted: Model Name='{model_name}', Caption='{caption}'"
         )
@@ -132,10 +146,10 @@ def process_posts(sheet, drive_service):
         ):
             model_name = post["model"]
             api, client = setup_api(model_name)
-            image_path = download_image(post["source"], drive_service)
-            media_id = upload_media(image_path, api)
+            image_paths = download_image(post["source"], drive_service)
+            media_ids = upload_media(image_paths, api)
             post_to_twitter(
-                client, post["description"], media_id, model_name, sheet, idx
+                client, post["description"], media_ids, model_name, sheet, idx
             )
 
 
