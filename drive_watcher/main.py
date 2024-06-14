@@ -13,7 +13,7 @@ def get_credentials():
     log_message("Fetching credentials.")
     _, project = default()
     client = secretmanager.SecretManagerServiceClient()
-    secret_name = "service-account-appspot-credentials"  # Adjust the name as per your configuration
+    secret_name = "service-account-appspot-credentials"
     secret_version = "latest"
     name = f"projects/{project}/secrets/{secret_name}/versions/{secret_version}"
     response = client.access_secret_version(request={"name": name})
@@ -25,21 +25,25 @@ def get_credentials():
     return creds
 
 
-def create_channel(folder_id):
+def create_channel(folder_id, credentials):
+    service = build("drive", "v3", credentials=credentials)
     body = {
         "id": "drive-watcher",
         "type": "web_hook",
-        "address": "https://us-west2-social-media-425919.cloudfunctions.net/drive_watcher",  # Your Cloud Function URL
-        "payload": True,  # Indicates that notification payloads will be included in the requests
+        "address": "https://us-west2-social-media-425919.cloudfunctions.net/drive_watcher",
+        "payload": True,
     }
     response = service.files().watch(fileId=folder_id, body=body).execute()
     print("Channel created:", response)
     return response
 
 
-# Example usage, ensure to replace 'YOUR_FOLDER_ID' with the actual folder ID
-if __name__ == "__main__":
+def main(request):
     folder_id = "1B6cy-9FXJn0-Q1R8A7gx6k9dZ_Ib95hj"
     credentials = get_credentials()
-    service = build("drive", "v3", credentials=credentials)
-    create_channel(folder_id)
+    create_channel(folder_id, credentials)
+    return "Channel Created Successfully", 200
+
+
+if __name__ == "__main__":
+    main()
