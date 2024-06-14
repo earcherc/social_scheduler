@@ -19,7 +19,7 @@ def get_credentials():
     log_message("Fetching credentials.")
     _, project = default()
     client = secretmanager.SecretManagerServiceClient()
-    secret_name = "social-schedule-secret"
+    secret_name = "service-account-appspot-credentials"
     secret_version = "latest"
     name = f"projects/{project}/secrets/{secret_name}/versions/{secret_version}"
     response = client.access_secret_version(request={"name": name})
