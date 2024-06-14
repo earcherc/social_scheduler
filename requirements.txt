@@ -6,3 +6,4 @@ gspread==6.1.2
 requests==2.32.3
 tweepy==4.14.0
 google-cloud-secret-manager==2.20.0
+google-api-python-client==2.133.0
