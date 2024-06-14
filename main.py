@@ -144,6 +144,7 @@ def main(request):
     sheet = initialize_sheet(creds)
     drive_service = setup_google_drive(creds)
     process_posts(sheet, drive_service)
+    return "Posts processed successfully"
 
 
 if __name__ == "__main__":
